@@ -37,39 +37,31 @@ CMake 3.20+ and a C++23 compiler are required for both targets.
 The **TUI** (`WoW_335a_Patcher`) has no external dependencies.  
 The **GUI** (`WoW_335a_Patcher_GUI`) requires SDL2 and OpenGL; Dear ImGui is fetched automatically at configure time.
 
+SDL2 and Dear ImGui are fetched automatically at configure time — no manual installs required.
+
 ### Linux
 
 ```sh
-# Arch
-sudo pacman -S sdl2
-
-# Ubuntu / Debian
-sudo apt install libsdl2-dev
-
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
 Binaries are written to `build/`.  
-The file-browser button uses `zenity`, `kdialog`, or `yad` if available.
+The file-browser button uses `zenity`, `kdialog`, or `yad` if any are installed.
 
 ### Windows
 
-Install [SDL2](https://github.com/libsdl-org/SDL/releases) and point CMake at it:
-
 ```bat
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSDL2_DIR=C:\path\to\SDL2\cmake
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
 Visual Studio 2022 (v17+) and MinGW-w64 13+ both work.  
-The GUI uses the native `GetOpenFileName` dialog — no extra tools needed.
+The GUI uses the native `GetOpenFileName` dialog.
 
 ### macOS
 
 ```sh
-brew install sdl2
-
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```

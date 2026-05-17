@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # ── TUI (no extra deps) ───────────────────────────────────────────────────────
-add_executable(WoW_335a_Patcher main.cpp)
+add_executable(WoW_335a_Patcher src/main.cpp)
 if(MINGW)
     target_link_options(WoW_335a_Patcher PRIVATE
         -static-libgcc -static-libstdc++ -static)
@@ -21,11 +21,17 @@ FetchContent_Declare(imgui
 )
 FetchContent_MakeAvailable(imgui)
 
-find_package(SDL2 REQUIRED)
+FetchContent_Declare(SDL2
+    GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
+    GIT_TAG        release-2.32.10
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(SDL2)
+
 find_package(OpenGL REQUIRED)
 
 add_executable(WoW_335a_Patcher_GUI
-    gui_main.cpp
+    src/gui_main.cpp
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
     ${imgui_SOURCE_DIR}/imgui_tables.cpp
@@ -36,10 +42,9 @@ add_executable(WoW_335a_Patcher_GUI
 target_include_directories(WoW_335a_Patcher_GUI PRIVATE
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
-    ${SDL2_INCLUDE_DIRS}
 )
 target_link_libraries(WoW_335a_Patcher_GUI PRIVATE
-    ${SDL2_LIBRARIES}
+    SDL2::SDL2
     OpenGL::GL
 )
 if(WIN32)
