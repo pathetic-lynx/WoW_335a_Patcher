@@ -5,6 +5,9 @@ project(WoW_335a_Patcher)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# generate compile commands
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # Add executable
 add_executable(WoW_335a_Patcher main.cpp)
 
