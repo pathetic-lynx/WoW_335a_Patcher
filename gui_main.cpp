@@ -7,11 +7,8 @@
 #include <SDL.h>
 #include <SDL_opengl.h>
 
-#include <chrono>
 #include <cstdio>
 #include <cstring>
-#include <ctime>
-#include <deque>
 #include <filesystem>
 #include <string>
 
@@ -48,27 +45,25 @@ static std::string native_open_dialog() {
 }
 
 #else // Linux / BSD
+#  include <sys/wait.h>
 static std::string try_cmd(const char* cmd) {
     FILE* f = popen(cmd, "r");
     if (!f) return "";
     char buf[512] = {};
     fgets(buf, sizeof(buf), f);
     int rc = pclose(f);
-    if (rc != 0) return "";            // user cancelled or tool missing
+    if (WIFEXITED(rc) && WEXITSTATUS(rc) == 127) return ""; // tool not found
     size_t n = strlen(buf);
     while (n && (buf[n-1] == '\n' || buf[n-1] == '\r')) buf[--n] = '\0';
-    return buf;
+    return buf; // empty string if user cancelled (non-zero but tool ran)
 }
 
 static std::string native_open_dialog() {
     std::string r;
-    // zenity (GTK / GNOME)
     r = try_cmd("zenity --file-selection --title='Select WoW.exe' 2>/dev/null");
     if (!r.empty()) return r;
-    // kdialog (KDE)
     r = try_cmd("kdialog --getopenfilename '$HOME' '*.exe *' 2>/dev/null");
     if (!r.empty()) return r;
-    // yad (Yet Another Dialog)
     r = try_cmd("yad --file-selection --title='Select WoW.exe' 2>/dev/null");
     return r;
 }
@@ -78,24 +73,25 @@ static std::string native_open_dialog() {
 static std::vector<Patch>       g_patches  = default_patches();
 static std::vector<PatchStatus> g_statuses;
 static char                     g_path[512] = {};
-static std::deque<std::string>  g_log;
 static bool                     g_open_confirm = false;
-static bool                     g_dragging     = false; // file being dragged over window
+static bool                     g_dragging     = false;
+
+static void action_verify(); // forward declaration
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-static void append_log(const std::string& msg) {
-    auto now = std::chrono::system_clock::now();
-    std::time_t t = std::chrono::system_clock::to_time_t(now);
-    char ts[10];
-    std::strftime(ts, sizeof(ts), "%H:%M:%S", std::localtime(&t));
-    g_log.push_front(std::string("[") + ts + "] " + msg);
-    if (g_log.size() > 300) g_log.pop_back();
+static bool path_is_target_file() {
+    if (g_path[0] == '\0') return false;
+    std::error_code ec;
+    auto sz = static_cast<std::streamsize>(std::filesystem::file_size(g_path, ec));
+    return !ec && sz == kExpectedFileSize;
 }
 
 static void set_path(const char* p) {
     std::strncpy(g_path, p, sizeof(g_path) - 1);
     g_path[sizeof(g_path) - 1] = '\0';
     g_statuses.clear();
+    if (path_is_target_file())
+        action_verify();
 }
 
 static ImVec4 status_col(PatchStatus s) {
@@ -120,67 +116,36 @@ static const char* status_str(PatchStatus s) {
 static void action_verify() {
     std::string path = g_path;
     g_statuses.resize(g_patches.size());
-    int applied = 0, unpatched = 0, mismatch = 0;
     for (size_t i = 0; i < g_patches.size(); i++) {
         g_statuses[i] = check_patch(path, g_patches[i]);
-        switch (g_statuses[i]) {
-            case PatchStatus::Applied:   applied++;   break;
-            case PatchStatus::Unpatched: unpatched++; break;
-            case PatchStatus::Mismatch:  mismatch++;  break;
-        }
-    }
-    append_log("Verify: " + std::to_string(applied) + " applied, "
-             + std::to_string(unpatched) + " unpatched, "
-             + std::to_string(mismatch) + " mismatch");
-}
-
-static void action_backup() {
-    std::string path = g_path;
-    std::string bk   = path + ".backup";
-    try {
-        std::filesystem::copy(path, bk, std::filesystem::copy_options::overwrite_existing);
-        append_log("Backup created: " + bk);
-    } catch (const std::exception& e) {
-        append_log("Backup failed: " + std::string(e.what()));
-    }
-}
-
-static void action_restore() {
-    std::string path = g_path;
-    std::string bk   = path + ".backup";
-    try {
-        std::filesystem::copy(bk, path, std::filesystem::copy_options::overwrite_existing);
-        g_statuses.clear();
-        append_log("Restored from: " + bk);
-    } catch (const std::exception& e) {
-        append_log("Restore failed: " + std::string(e.what()));
+        g_patches[i].enabled = (g_statuses[i] == PatchStatus::Applied);
     }
 }
 
 static void action_apply() {
     std::string path = g_path;
     std::fstream f(path, std::ios::in | std::ios::out | std::ios::binary);
-    if (!f) { append_log("Error: could not open file for writing."); return; }
+    if (!f) return;
 
-    int ok = 0, fail = 0;
-    for (const auto& p : g_patches) {
-        if (!p.enabled) continue;
-        bool all_ok = true;
+    for (size_t i = 0; i < g_patches.size(); i++) {
+        const auto& p = g_patches[i];
+        PatchStatus st = (i < g_statuses.size()) ? g_statuses[i] : PatchStatus::Mismatch;
         for (const auto& bp : p.changes) {
+            const std::vector<uint8_t>* bytes = nullptr;
+            if (p.enabled)
+                bytes = &bp.replacement;
+            else if (st == PatchStatus::Applied)
+                bytes = &bp.original;
+            if (!bytes) continue;
             f.clear();
             f.seekp(bp.offset);
-            if (!f) { all_ok = false; break; }
-            f.write(reinterpret_cast<const char*>(bp.replacement.data()),
-                    static_cast<std::streamsize>(bp.replacement.size()));
-            if (!f) { all_ok = false; break; }
+            if (!f) continue;
+            f.write(reinterpret_cast<const char*>(bytes->data()),
+                    static_cast<std::streamsize>(bytes->size()));
         }
-        if (all_ok) ok++;
-        else { fail++; append_log("Write failed: " + p.name); }
     }
     f.close();
-    g_statuses.clear();
-    append_log("Applied " + std::to_string(ok) + " patch(es)"
-             + (fail ? (", " + std::to_string(fail) + " failed") : "."));
+    action_verify();
 }
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
@@ -249,14 +214,14 @@ static void render(int win_w, int win_h) {
     ImGui::SetNextItemWidth(-browse_w);
     if (ImGui::InputText("##path", g_path, sizeof(g_path)))
         g_statuses.clear();
+    if (ImGui::IsItemDeactivatedAfterEdit() && path_is_target_file())
+        action_verify();
 
     ImGui::SameLine();
     if (ImGui::Button("Browse...")) {
         std::string chosen = native_open_dialog();
-        if (!chosen.empty()) {
+        if (!chosen.empty())
             set_path(chosen.c_str());
-            append_log("Selected: " + chosen);
-        }
     }
 
     // Hint shown only when path is empty
@@ -285,40 +250,15 @@ static void render(int win_w, int win_h) {
                                "Status: OK  (%lld bytes)", (long long)sz);
         }
     }
-    if (f_exists && std::filesystem::exists(path + ".backup")) {
-        ImGui::SameLine();
-        ImGui::TextDisabled("  [backup exists]");
-    }
-
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
 
     // ── Action buttons ────────────────────────────────────────────────────────
-    int n_sel = 0;
-    for (const auto& p : g_patches) if (p.enabled) n_sel++;
-
     if (!f_exists) ImGui::BeginDisabled();
-
-    if (ImGui::Button("Verify"))         action_verify();
+    if (ImGui::Button("Verify"))  action_verify();
     ImGui::SameLine();
-    if (ImGui::Button("Create Backup"))  action_backup();
-    ImGui::SameLine();
-    if (ImGui::Button("Restore Backup")) {
-        if (!std::filesystem::exists(path + ".backup"))
-            append_log("No backup found for: " + path);
-        else
-            action_restore();
-    }
-    ImGui::SameLine();
-    {
-        char lbl[48];
-        std::snprintf(lbl, sizeof(lbl), "Apply  (%d selected)", n_sel);
-        if (n_sel == 0) ImGui::BeginDisabled();
-        if (ImGui::Button(lbl)) g_open_confirm = true;
-        if (n_sel == 0) ImGui::EndDisabled();
-    }
-
+    if (ImGui::Button("Apply"))   g_open_confirm = true;
     if (!f_exists) ImGui::EndDisabled();
 
     ImGui::Spacing();
@@ -334,11 +274,8 @@ static void render(int win_w, int win_h) {
                             ImGuiCond_Appearing, {0.5f, 0.5f});
     if (ImGui::BeginPopupModal("Confirm##apply", nullptr,
                                ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("Apply %d selected patch(es) to:", n_sel);
+        ImGui::Text("Write patch state to:");
         ImGui::TextColored({0.45f, 0.80f, 1.f, 1.f}, "%s", g_path);
-        ImGui::Spacing();
-        ImGui::TextColored({1.f, 0.78f, 0.1f, 1.f},
-                           "Create a backup first if you haven't already.");
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::Spacing();
@@ -352,10 +289,8 @@ static void render(int win_w, int win_h) {
         ImGui::EndPopup();
     }
 
-    // ── Two-column content: patches | log ─────────────────────────────────────
-    float left_w = ImGui::GetContentRegionAvail().x * 0.60f;
-
-    ImGui::BeginChild("##patches", {left_w, 0}, ImGuiChildFlags_Borders);
+    // ── Patch list ────────────────────────────────────────────────────────────
+    ImGui::BeginChild("##patches", {0, 0}, ImGuiChildFlags_Borders);
     ImGui::TextDisabled("Patches");
     ImGui::Separator();
 
@@ -390,17 +325,6 @@ static void render(int win_w, int win_h) {
     if (ImGui::SmallButton("None")) for (auto& p : g_patches) p.enabled = false;
     ImGui::EndChild();
 
-    ImGui::SameLine();
-
-    ImGui::BeginChild("##log", {0, 0}, ImGuiChildFlags_Borders);
-    ImGui::TextDisabled("Log");
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Clear")) g_log.clear();
-    ImGui::Separator();
-    for (const auto& line : g_log)
-        ImGui::TextUnformatted(line.c_str());
-    ImGui::EndChild();
-
     ImGui::End();
 
     // ── Drag-over overlay (drawn above everything) ────────────────────────────
@@ -428,7 +352,7 @@ static void render(int win_w, int win_h) {
 // ── Entry point ───────────────────────────────────────────────────────────────
 int main(int argc, char** argv) {
     if (argc >= 2)
-        std::strncpy(g_path, argv[1], sizeof(g_path) - 1);
+        set_path(argv[1]);
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
         SDL_Log("SDL_Init: %s", SDL_GetError());
@@ -494,13 +418,11 @@ int main(int argc, char** argv) {
                 case SDL_DROPCOMPLETE:
                     g_dragging = false;
                     break;
-                case SDL_DROPFILE: {
+                case SDL_DROPFILE:
                     g_dragging = false;
                     set_path(ev.drop.file);
-                    append_log("Dropped: " + std::string(ev.drop.file));
                     SDL_free(ev.drop.file);
                     break;
-                }
             }
         }
 

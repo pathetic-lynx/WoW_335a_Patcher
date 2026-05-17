@@ -66,43 +66,13 @@ static void do_verify(const std::string& path) {
     wait_enter();
 }
 
-static void do_backup(const std::string& path) {
-    std::string bk = path + ".backup";
-    try {
-        fs::copy(path, bk, fs::copy_options::overwrite_existing);
-        std::cout << C::GRN << "  Backup created: " << bk << C::RST << "\n";
-    } catch (const std::exception& e) {
-        std::cout << C::RED << "  Backup failed: " << e.what() << C::RST << "\n";
-    }
-    wait_enter();
-}
-
-static void do_restore(const std::string& path) {
-    std::string bk = path + ".backup";
-    if (!fs::exists(bk)) {
-        std::cout << C::YEL << "  No backup found at: " << bk << C::RST << "\n";
-        wait_enter();
-        return;
-    }
-    try {
-        fs::copy(bk, path, fs::copy_options::overwrite_existing);
-        std::cout << C::GRN << "  Restored from: " << bk << C::RST << "\n";
-    } catch (const std::exception& e) {
-        std::cout << C::RED << "  Restore failed: " << e.what() << C::RST << "\n";
-    }
-    wait_enter();
-}
-
 static void do_apply(const std::string& path) {
-    std::vector<size_t> selected;
+    // Check current state before opening for write so disabled patches with
+    // Mismatch/Unpatched status are left untouched.
+    std::vector<PatchStatus> statuses(g_patches.size());
     for (size_t i = 0; i < g_patches.size(); i++)
-        if (g_patches[i].enabled) selected.push_back(i);
-
-    if (selected.empty()) {
-        std::cout << C::YEL << "  No patches selected.\n" << C::RST;
-        wait_enter();
-        return;
-    }
+        if (!g_patches[i].enabled)
+            statuses[i] = check_patch(path, g_patches[i]);
 
     std::fstream f(path, std::ios::in | std::ios::out | std::ios::binary);
     if (!f) {
@@ -111,24 +81,32 @@ static void do_apply(const std::string& path) {
         return;
     }
 
-    std::cout << C::BOLD << "\nApplying patches...\n" << C::RST;
+    std::cout << C::BOLD << "\nWriting patches...\n" << C::RST;
     int ok = 0, fail = 0;
-    for (size_t idx : selected) {
-        const auto& p = g_patches[idx];
+    for (size_t i = 0; i < g_patches.size(); i++) {
+        const auto& p = g_patches[i];
         bool all_ok = true;
         for (const auto& bp : p.changes) {
+            const std::vector<uint8_t>* bytes = nullptr;
+            if (p.enabled)
+                bytes = &bp.replacement;
+            else if (statuses[i] == PatchStatus::Applied)
+                bytes = &bp.original;
+            if (!bytes) continue;
             f.clear();
             f.seekp(bp.offset);
             if (!f) { all_ok = false; break; }
-            f.write(reinterpret_cast<const char*>(bp.replacement.data()),
-                    static_cast<std::streamsize>(bp.replacement.size()));
+            f.write(reinterpret_cast<const char*>(bytes->data()),
+                    static_cast<std::streamsize>(bytes->size()));
             if (!f) { all_ok = false; break; }
         }
         if (all_ok) {
-            std::cout << "  " << C::GRN << "[OK]" << C::RST << " " << p.name << "\n";
+            const char* tag = p.enabled ? "[+]" : "[-]";
+            std::cout << "  " << (p.enabled ? C::GRN : C::DIM) << tag << C::RST
+                      << " " << p.name << "\n";
             ok++;
         } else {
-            std::cout << "  " << C::RED << "[!!]" << C::RST << " " << p.name << " (write failed)\n";
+            std::cout << "  " << C::RED << "[!!]" << C::RST << " " << p.name << "\n";
             fail++;
         }
     }
@@ -136,9 +114,9 @@ static void do_apply(const std::string& path) {
 
     std::cout << "\n";
     if (fail == 0)
-        std::cout << C::GRN << C::BOLD << "  Done. " << ok << " patch(es) applied.\n" << C::RST;
+        std::cout << C::GRN << C::BOLD << "  Done. " << ok << " patches written.\n" << C::RST;
     else
-        std::cout << C::YEL << C::BOLD << "  " << ok << " applied, " << fail << " failed.\n" << C::RST;
+        std::cout << C::YEL << C::BOLD << "  " << ok << " written, " << fail << " failed.\n" << C::RST;
     wait_enter();
 }
 
@@ -184,9 +162,6 @@ static void print_header(const std::string& path) {
             std::cout << C::GRN << "  Status: OK (" << sz << " bytes)\n" << C::RST;
     }
 
-    if (fs::exists(path + ".backup"))
-        std::cout << C::DIM << "  Backup: " << path << ".backup\n" << C::RST;
-
     int enabled = 0;
     for (const auto& p : g_patches) if (p.enabled) enabled++;
     std::cout << C::DIM << "  Patches selected: " << enabled << "/" << g_patches.size() << "\n\n" << C::RST;
@@ -213,20 +188,16 @@ int main(int argc, char** argv) {
         clear_screen();
         print_header(path);
         std::cout << C::BOLD << "  [1]" << C::RST << " Verify patches\n";
-        std::cout << C::BOLD << "  [2]" << C::RST << " Create backup\n";
-        std::cout << C::BOLD << "  [3]" << C::RST << " Restore backup\n";
-        std::cout << C::BOLD << "  [4]" << C::RST << " Apply selected patches\n";
-        std::cout << C::BOLD << "  [5]" << C::RST << " Toggle patches\n";
+        std::cout << C::BOLD << "  [2]" << C::RST << " Apply selected patches\n";
+        std::cout << C::BOLD << "  [3]" << C::RST << " Toggle patches\n";
         std::cout << C::BOLD << "  [0]" << C::RST << " Quit\n\n";
 
         std::string choice = read_line("  > ");
         if      (choice == "0")                     break;
         else if (choice == "1")                     do_verify(path);
-        else if (choice == "2")                     do_backup(path);
-        else if (choice == "3")                     do_restore(path);
-        else if (choice == "4" && fs::exists(path)) do_apply(path);
-        else if (choice == "4")                   { std::cout << C::RED << "  File not found.\n" << C::RST; wait_enter(); }
-        else if (choice == "5")                     do_toggle();
+        else if (choice == "2" && fs::exists(path)) do_apply(path);
+        else if (choice == "2")                   { std::cout << C::RED << "  File not found.\n" << C::RST; wait_enter(); }
+        else if (choice == "3")                     do_toggle();
     }
     return EXIT_SUCCESS;
 }
