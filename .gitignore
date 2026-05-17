@@ -2,4 +2,6 @@
 /x86/*
 /.vs/*
 /cmake-build*
+/build
+/build-windows
 .idea
