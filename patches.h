@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-constexpr std::streamsize kExpectedFileSize = 0x757C00;
+constexpr std::streamsize kExpectedFileSize = 7704216;
 
 struct BytePatch {
   std::streampos offset;

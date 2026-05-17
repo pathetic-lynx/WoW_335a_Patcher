@@ -12,6 +12,7 @@
 #include <cstring>
 #include <ctime>
 #include <deque>
+#include <filesystem>
 #include <string>
 
 // ── Native file dialog ────────────────────────────────────────────────────────
