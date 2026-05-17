@@ -3,4 +3,5 @@
 /.vs/*
 /cmake-build*
 /build
+/build-windows
 .idea

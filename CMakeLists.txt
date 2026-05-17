@@ -26,6 +26,10 @@ FetchContent_Declare(SDL2
     GIT_TAG        release-2.32.10
     GIT_SHALLOW    TRUE
 )
+if(WIN32)
+    set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+    set(SDL_STATIC ON  CACHE BOOL "" FORCE)
+endif()
 FetchContent_MakeAvailable(SDL2)
 
 find_package(OpenGL REQUIRED)
@@ -43,10 +47,12 @@ target_include_directories(WoW_335a_Patcher_GUI PRIVATE
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
 )
-target_link_libraries(WoW_335a_Patcher_GUI PRIVATE
-    SDL2::SDL2
-    OpenGL::GL
-)
+if(WIN32)
+    target_link_libraries(WoW_335a_Patcher_GUI PRIVATE SDL2::SDL2main SDL2::SDL2-static)
+else()
+    target_link_libraries(WoW_335a_Patcher_GUI PRIVATE SDL2::SDL2main SDL2::SDL2)
+endif()
+target_link_libraries(WoW_335a_Patcher_GUI PRIVATE OpenGL::GL)
 if(WIN32)
     target_link_libraries(WoW_335a_Patcher_GUI PRIVATE comdlg32)
 endif()
