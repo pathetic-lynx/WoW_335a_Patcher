@@ -11,6 +11,10 @@ CMakeLists.txt
 README.md
 ```
 
+## Building for Windows
+
+Windows is **cross-compiled from Linux only** using `mingw-w64`. There is no native Windows build and no dedicated build script — pass the mingw compilers via `-DCMAKE_SYSTEM_NAME=Windows -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc ...` (see README). Do not add a `build-windows.sh` or a `cmake/windows-x86_64-toolchain.cmake`.
+
 Two build targets: `WoW_335a_Patcher` (TUI) and `WoW_335a_Patcher_GUI` (GUI).
 
 ## Dependencies

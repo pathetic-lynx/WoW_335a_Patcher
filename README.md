@@ -43,27 +43,33 @@ SDL2 and Dear ImGui are fetched automatically at configure time — no manual in
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
+cmake --build build --parallel
 ```
 
 Binaries are written to `build/`.  
 The file-browser button uses `zenity`, `kdialog`, or `yad` if any are installed.
 
-### Windows
+### Windows (cross-compile from Linux)
 
-```bat
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
+Requires `mingw-w64` (`pacman -S mingw-w64-gcc` / `apt install gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64`).
+
+```sh
+cmake -S . -B build-windows \
+    -DCMAKE_SYSTEM_NAME=Windows \
+    -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
+    -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
+    -DCMAKE_RC_COMPILER=x86_64-w64-mingw32-windres \
+    -DCMAKE_BUILD_TYPE=Release
+cmake --build build-windows --parallel
 ```
 
-Visual Studio 2022 (v17+) and MinGW-w64 13+ both work.  
-The GUI uses the native `GetOpenFileName` dialog.
+Binaries (`*.exe`) are written to `build-windows/`.
 
 ### macOS
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build
+cmake --build build --parallel
 ```
 
 The file-browser button uses `osascript` (built-in).
