@@ -30,26 +30,7 @@ Checking/unchecking a patch and clicking **Apply** will apply or revert it in-pl
 
 ---
 
-## Building
-
-CMake 3.20+ and a C++23 compiler are required for both targets.
-
-The **TUI** (`WoW_335a_Patcher`) has no external dependencies.  
-The **GUI** (`WoW_335a_Patcher_GUI`) requires SDL2 and OpenGL; Dear ImGui is fetched automatically at configure time.
-
-SDL2 and Dear ImGui are fetched automatically at configure time — no manual installs required.
-
-### Linux
-
-```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel
-```
-
-Binaries are written to `build/`.  
-The file-browser button uses `zenity`, `kdialog`, or `yad` if any are installed.
-
-### Windows (cross-compile from Linux)
+## Building for Windows (cross-compile from Linux)
 
 Requires `mingw-w64` (`pacman -S mingw-w64-gcc` / `apt install gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64`).
 
@@ -64,26 +45,3 @@ cmake --build build-windows --parallel
 ```
 
 Binaries (`*.exe`) are written to `build-windows/`.
-
-### macOS
-
-```sh
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel
-```
-
-The file-browser button uses `osascript` (built-in).
-
----
-
-## Usage
-
-```sh
-# GUI (recommended)
-./build/WoW_335a_Patcher_GUI /path/to/WoW.exe
-
-# TUI
-./build/WoW_335a_Patcher /path/to/WoW.exe
-```
-
-The path can also be set at runtime via the file field, the **Browse** button, or by dragging the executable onto the window (GUI only).
